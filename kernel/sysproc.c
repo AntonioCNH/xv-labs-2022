@@ -75,6 +75,23 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 va;
+  int len;
+  uint64 result;
+  argaddr(0, &va);
+  argint(1, &len); 
+  argaddr(2, &result);
+  int final = 0;
+  
+  struct proc *p = myproc();
+  for(int i = 0; i < len; i++) {
+    pte_t *pte = walk(p->pagetable, va + i * PGSIZE, 0);
+    if(*pte & PTE_A) {
+      final = final | (1 << i);
+    } 
+    *pte = *pte & ~PTE_A;
+  }
+  copyout(p->pagetable, result, (char *)(&final), sizeof(final));
   return 0;
 }
 #endif
@@ -100,3 +117,4 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+

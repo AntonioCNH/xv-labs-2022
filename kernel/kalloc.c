@@ -18,6 +18,10 @@ struct run {
   struct run *next;
 };
 
+#define PGNUM 33000
+
+int count[PGNUM];
+
 struct {
   struct spinlock lock;
   struct run *freelist;
@@ -28,6 +32,9 @@ kinit()
 {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
+  for(int i = 0; i < PGNUM; i++){
+    count[i] = 0;
+  }
 }
 
 void
@@ -54,6 +61,16 @@ kfree(void *pa)
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
+  int location = ((uint64)pa - KERNBASE) / PGSIZE;
+  if(location < 0 || location > PGNUM) {
+    panic("invalid location.\n");
+  }
+  if(count[location] > 0) {
+    count[location]-- ;
+  } else if(count[location] < 0) {
+    panic("kfree: minus page reference.\n");
+  }
+
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
@@ -78,5 +95,10 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  int location = ((uint64)r - KERNBASE) / PGSIZE;
+  if(location < 0 || location > PGNUM) {
+    panic("invalid PG.\n");
+  }
+  count[location] = 1;
   return (void*)r;
 }

@@ -293,7 +293,7 @@ fork(void)
     freeproc(np);
     release(&np->lock);
     return -1;
-  }
+  } 
   np->sz = p->sz;
 
   // copy saved user registers.

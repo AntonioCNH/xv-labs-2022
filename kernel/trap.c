@@ -65,7 +65,14 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } else if(r_scause() == 15) {
+    if(killed(p)) {
+      exit(-1);
+    }
+    if(alloc_va(p->pagetable, PGROUNDDOWN(r_stval())) < 0) {
+      kill(p->pid);
+    }
+  }else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

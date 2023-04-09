@@ -302,34 +302,84 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
+
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+ // char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+  // for(i = 0; i < sz; i += PGSIZE){
+  //   if((pte = walk(old, i, 0)) == 0)
+  //     panic("uvmcopy: pte should exist");
+  //   if((*pte & PTE_V) == 0)
+  //     panic("uvmcopy: page not present");
+  //   pa = PTE2PA(*pte);
+  //   flags = PTE_FLAGS(*pte);
+  //   if((mem = kalloc()) == 0)
+  //     goto err;
+  //   memmove(mem, (char*)pa, PGSIZE);
+  //   if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+  //     kfree(mem);
+  //     goto err;
+  //   }
+  // }  
+
+  for(i = 0; i < sz; i += PGSIZE) {
+    if((pte = walk(old, i, 0)) == 0) {
+      panic("uvmcopy: page not present.\n");
+    }
     pa = PTE2PA(*pte);
+    // TODO: count pa;
+    // printf("uvmcopy: before pte %x, pa = %x, va = %x\n", *pte, pa, i);
+    *pte = STORE_FLAG(*pte);
+    // printf("uvmcopy: after pte %x\n", *pte);
+    *pte = *pte & (~(PTE_W));  //clear 
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    // printf("uvmcopy: flags: %x\n", flags);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0) {
+      panic("uvmcopy: mappages failed\n");
     }
   }
   return 0;
+//  err:
+//   uvmunmap(new, 0, i / PGSIZE, 1);
+//   return -1;
+}
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+int 
+alloc_va(pagetable_t pagetable, uint64 va) {
+  if(va >= MAXVA) {
+    panic("alloc_va: va too large.\n");
+    return -1;
+  }
+  pte_t *pte = walk(pagetable, va, 0);
+  if((*pte & 0x100) == 0) {
+    printf("alloc_va: %x. pa = %x, va = %x\n", *pte, PTE2PA(*pte), va);
+    panic("alloc_va: va can't be written.\n");
+    return -1;
+  } // try to access the address which can't write or execute.
+  uint64 pa_old;
+  if((pa_old = walkaddr(pagetable, va)) == 0) {
+    panic("alloc_va: pa find failed\n");
+  }
+  uint64 flag = RESTORE_FLAG(*pte);
+  uint64 pa;
+  if((pa = (uint64)kalloc()) == 0) {
+    panic("alloc_va: no spare pa.\n");
+    return -1;
+  }
+  memmove((void *) pa, (void *)pa_old, PGSIZE);
+  
+  uvmunmap(pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(pagetable, va, PGSIZE, pa, flag) < 0) {
+    printf("alloc_va: mappages failed\n");
+    return -1;
+  }
+  return 0;
+
 }
 
 // mark a PTE invalid for user access.
@@ -356,6 +406,26 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
+    pte_t *pte = walk(pagetable, va0, 0);
+    if((*pte & (PTE_W)) == 0) {
+      if((*pte & 0x100) == 0) {
+        panic("copyout: trying to copy out to an userspace which can't write.\n");
+      }
+      else {
+        uint64 pa;
+        if((pa = (uint64)kalloc()) == 0) {
+          panic("Not enough memory to copy.\n");
+        }
+        uint64 flag = RESTORE_FLAG(*pte);
+        uint64 pa_old = walkaddr(pagetable, va0);
+        memmove((void*)pa, (void*)pa_old, PGSIZE);
+        uvmunmap(pagetable, va0, 1, 1);
+        if(mappages(pagetable, va0, PGSIZE, pa, flag)) {
+          panic("copyout: mappages failed.\n");
+        }
+        pa0 = pa;
+      }
+    }
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);

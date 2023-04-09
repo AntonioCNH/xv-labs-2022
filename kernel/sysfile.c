@@ -503,3 +503,124 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64 
+sys_mmap(void) 
+{
+  int len;
+  int prot;
+  int flag;
+  int fd;
+  struct file *file;
+  argint(1, &len);
+  argint(2, &prot);
+  argint(3, &flag);
+  argfd(4, &fd, &file);
+
+  int i;
+  struct proc *p = myproc();
+  for(i = 0; i < 16; i++) {
+    if(p->vma[i].used == 0) {
+      p->vma[i].fd = fd;
+      p->vma[i].prot = prot;
+      p->vma[i].flag = flag;
+      p->vma[i].offset = 0;
+      p->vma[i].size = len;
+      p->vma[i].used = 1;
+      p->vma[i].file = file;
+      p->vma[i].addr = p->sz;
+      p->sz += len;
+      filedup(file);
+      break;
+    }
+  }
+  if(i == 16) {
+    panic("No sufficient vma.\n");
+  }
+  return p->vma[i].addr;
+
+}
+
+uint64 
+sys_munmap(void) 
+{
+  uint64 addr;
+  int len;
+  argaddr(0, &addr);
+  argint(1, &len);
+
+  struct proc *p = myproc();
+  int i;
+  for(i = 0; i < 16; i++) {
+    
+    if(p->vma[i].used) {
+      // addr at the begining 
+      if(p->vma[i].addr == addr) {
+        if(p->vma[i].size <= len) {
+          panic("sys_munmap:too long len.\n");
+        }
+        p->vma[i].addr += len;
+        p->vma[i].size -= len;
+        break;
+      }
+      // addr at the end 
+      if((p->vma[i].addr + p->vma[i].size) == (addr + len)) {
+        p->vma[i].size -= len;
+        p->sz -= len;
+        break;
+      }
+    }
+  } 
+
+  if(i < 16) {
+    if((p->vma[i].flag & MAP_SHARED) && (p->vma[i].prot & PROT_WRITE)) {
+      filewrite(p->vma[i].file, addr, len);
+    }
+    p->vma[i].used = 0;
+    uvmunmap(p->pagetable, addr, len/PGSIZE, 1);
+    fileclose(p->vma[i].file);
+    return 0;
+  }
+  panic("sys_munmap failed\n");
+}
+
+int alloc_va(struct proc *p, uint64 va) {
+  if(va < p->sz) {
+    for(int i = 0; i < 16; i++) {
+      if(p->vma[i].used) {
+        if((p->vma[i].addr <= va) && (va <= p->vma[i].addr + p->vma[i].size)) {
+          uint64 pa;
+          if((pa = (uint64)kalloc()) == 0) {
+            return -1;
+          }
+          struct file *f = p->vma[i].file;
+          ilock(f->ip);
+          int offset = va - p->vma[i].addr;
+          if(readi(f->ip, 0, pa, offset, PGSIZE) == 0) {
+            iunlockput(f->ip);
+            kfree((void*)pa);
+            return -1;
+          }
+          int flags = PTE_U;
+          if(p->vma[i].prot & PROT_READ) {
+            flags |= PTE_R;
+          }
+          if(p->vma[i].prot & PROT_WRITE) {
+            flags |= PTE_W;
+          }
+          if(p->vma[i].prot & PROT_EXEC) {
+            flags |= PTE_X;
+          }
+          if(mappages(p->pagetable, va, PGSIZE, pa, flags) == -1) {
+            kfree((void *)pa);
+            return -1;
+          }
+          break;
+        }
+      }
+    }
+    return 0;
+  }
+  return -1;
+}
+

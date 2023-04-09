@@ -8,7 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
-
+struct VMA;
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -174,6 +174,7 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 
+
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
@@ -187,3 +188,15 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+int             alloc_va(struct proc*, uint64);
+
+#ifdef LAB_MMAP
+#define PROT_NONE       0x0
+#define PROT_READ       0x1
+#define PROT_WRITE      0x2
+#define PROT_EXEC       0x4
+
+#define MAP_SHARED      0x01
+#define MAP_PRIVATE     0x02
+#endif

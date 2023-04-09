@@ -132,6 +132,10 @@ found:
     return 0;
   }
 
+  for(int i = 0; i < 16; i++) {
+    p->vma[i].used = 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -308,6 +312,13 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  for(i = 0; i < 16; i++) {
+    if(p->vma[i].used) {
+      memmove(&np->vma[i], &p->vma[i], sizeof(struct VMA));
+      filedup(p->vma[i].file);
+    }
+  }
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -359,7 +370,15 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
-
+  for(int i = 0; i < 16; i++) {
+    if(p->vma[i].used) {
+      struct file *f = p->vma[i].file;
+      if((p->vma[i].prot & PROT_WRITE) && (p->vma[i].flag & MAP_SHARED)) {
+        filewrite(f, p->vma[i].addr, p->vma[i].size);
+      }
+      fileclose(f);
+    }
+  }
   begin_op();
   iput(p->cwd);
   end_op();
@@ -681,3 +700,5 @@ procdump(void)
     printf("\n");
   }
 }
+
+
